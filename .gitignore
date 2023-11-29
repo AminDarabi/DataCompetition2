@@ -2,3 +2,7 @@
 Data/*
 .DS_Store
 settings.json
+output/*
+output.csv
+results/*
+result/*
