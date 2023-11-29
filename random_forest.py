@@ -67,3 +67,42 @@ def read_sing_mnist_test(
     images_b = images[:, 1, :, :]
 
     return images_a, images_b
+
+
+def ascii_task_output(
+        predict_a: torch.Tensor | np.ndarray,
+        predict_b: torch.Tensor | np.ndarray,
+        file: str = 'result/output.csv'
+) -> pd.DataFrame:
+    """
+    create the ascii output for the test.
+
+    Parameters
+    ----------
+    predict_a : torch.Tensor
+        the predicted classes of the first test images.
+        shape is (3000,)
+    predict_b : torch.Tensor
+        the predicted classes of the second test images.
+        shape is (3000,)
+
+    Returns
+    -------
+    str
+        the ascii output for the task.
+    """
+
+    predict_a = np.array(predict_a)
+    predict_b = np.array(predict_b)
+
+    predict = predict_a + predict_b + 65
+
+    df = pd.DataFrame(
+        data={
+            'id': np.arange(0, 3000),
+            'label': [chr(x) for x in predict]
+        }
+    )
+
+    df.to_csv(file, header=True, index=False)
+    return df
