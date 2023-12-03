@@ -6,3 +6,4 @@ output/*
 output.csv
 results/*
 result/*
+__pycache__/*
