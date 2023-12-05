@@ -8,3 +8,4 @@ results/*
 result/*
 *.png
 *.txt
+__pycache__/*

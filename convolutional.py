@@ -1,15 +1,25 @@
+# This project is developed by Amin Darabi, and Seyed Armin Hosseini for
+# second data competition of the course IFT6390: Fundamentals of Machine
+# Learning at University of Montreal.
+'''
+This module contains implementation of a convolutional neural network for
+sign language classification.
 '''
 
-'''
+import argparse
 
 import torch
 import pandas as pd
 import numpy as np
+from scipy import ndimage
 
 
-def read_sing_mnist_train(
-        file: str = 'Data/sign_mnist_train.csv'
-) -> tuple[np.ndarray, np.ndarray]:
+def read_sign_mnist_train(
+        file: str = 'Data/sign_mnist_train.csv',
+        shuffle: bool = True,
+        valid_split: float = 0,
+        augment: bool = False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
     """
     read the sign language train set from csv file.
 
@@ -17,13 +27,21 @@ def read_sing_mnist_train(
     ----------
     file : str
         the path to the csv file.
+    shuffle : bool
+        shuffle the data.
+    valid_split : float
+        the ratio of the validation data.
+    augment : bool
+        augment training data.
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray]
-        the images and labels of the train set.
-        shape of images is (27455, 28, 28)
-        shape of labels is (27455,)
+    tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]
+        images and labels of the train set and validation set.
+        return None for validation data if valid_split is 0.
+        shape of images is (n, 28, 28)
+        shape of labels is (n,)
+        shape of validation images and labels is (m, 28, 28) and (m,)
     """
 
     df = pd.read_csv(file)
@@ -33,14 +51,49 @@ def read_sing_mnist_train(
         df.drop('label', axis=1).values.reshape(-1, 28, 28)
     ).astype(np.float32)
 
-    return images, labels
+    if augment:
+
+        # Add rotated images
+        rotated_images = np.array(
+            [ndimage.rotate(
+                img, np.random.randint(-20, 21), reshape=False
+            ) for img in images]
+        )
+
+        # Add shifted images
+        shifted_images = np.array(
+            [
+                ndimage.shift(img, np.random.randint(-3, 4, [2]))
+                for img in images
+            ]
+        )
+
+        labels = np.concatenate([labels, labels, labels])
+        images = np.concatenate([images, rotated_images, shifted_images])
+
+    if shuffle:
+        indices = np.arange(0, len(labels))
+        np.random.shuffle(indices)
+
+        labels = labels[indices]
+        images = images[indices]
+
+    if valid_split == 0:
+        return images, labels, None, None
+
+    split_index = int(len(labels) * valid_split)
+
+    return (
+        images[split_index:], labels[split_index:],
+        images[:split_index], labels[:split_index]
+    )
 
 
-def read_sing_mnist_test(
+def read_sign_mnist_test(
         file: str = 'Data/test.csv'
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    read the sign language test set from csv file.
+    Read the sign language test set from csv file.
 
     Parameters
     ----------
@@ -51,8 +104,8 @@ def read_sing_mnist_test(
     -------
     tuple[np.ndarray, np.ndarray]
         images a adn b of the test set.
-        shape of images is (3000, 28, 28)
-        shape of labels is (3000,)
+        shape of images is (n, 28, 28)
+        shape of labels is (n,)
     """
 
     df = pd.read_csv(file)
@@ -72,7 +125,7 @@ def ascii_task_output(
         file: str = 'result/output.csv'
 ) -> pd.DataFrame:
     """
-    create the ascii output for the test.
+    Create the ascii output for the test.
 
     Parameters
     ----------
@@ -82,11 +135,13 @@ def ascii_task_output(
     predict_b : torch.Tensor
         the predicted classes of the second test images.
         shape is (3000,)
+    file : str
+        the path to the output file.
 
     Returns
     -------
-    str
-        the ascii output for the task.
+    pd.DataFrame
+        the output dataframe.
     """
 
     predict_a = np.array(predict_a)
@@ -105,65 +160,101 @@ def ascii_task_output(
     return df
 
 
-class Convolutional(torch.nn.Module):
+class Convolutional():
     """
     simple convolutional neural network for sign language classification.
 
+    Attributes
+    ----------
+    model : torch.nn.Module
+        the convolutional neural network model.
+    optimizer : torch.optim.Adam | torch.optim.SGD
+        the optimizer for the model.
+    loss_function : torch.nn.CrossEntropyLoss
+        the loss function for the model.
+    device : str
+        the device for the model. (auto, cuda, mps, cpu)
+
+    Methods
+    -------
+    predict(data: torch.Tensor | np.ndarray) -> np.ndarray
+        predict the class of the given data.
+    score(
+        data: torch.Tensor | np.ndarray,
+        labels: torch.Tensor | np.ndarray
+    ) -> tuple[float, float]
+        calculate the accuracy and loss of the given data.
+    fit(
+        data: torch.Tensor | np.ndarray,
+        labels: torch.Tensor | np.ndarray,
+        valid_data: torch.Tensor | np.ndarray | None = None,
+        valid_labels: torch.Tensor | np.ndarray | None = None,
+        epochs: int = 4,
+        batch_size: int = 32,
+        print_loss: bool = True
+    ) -> 'Convolutional'
+        fit the convolutional neural network to the given data.
     """
 
     def __init__(
             self,
+            output_classes: int = 26,
+            input_channels: int = 1,
+            device: str = 'auto',
             optimizer: str = 'adam',
             loss_function: str = 'cross_entropy'
     ):
         """
-        initialize the convolutional neural network.
+        Initialize the convolutional neural network.
+
+        Parameters
+        ----------
+        output_classes : int
+            number of output classes.
+        input_channels : int
+            number of input channels.
+        device : str
+            device for the model. (auto, cuda, mps, cpu)
+        optimizer : str
+            optimizer for the model. (adam, sgd)
+        loss_function : str
+            loss function for the model. (cross_entropy)
+
+        Raises
+        ------
+        ValueError
+            if the device is not available.
+        ValueError
+            if the optimizer is not supported.
+        ValueError
+            if the loss function is not supported.
         """
 
-        super().__init__()
+        if device == 'auto':
+            self.device = (
+                'cuda' if torch.cuda.is_available() else
+                'mps' if torch.backends.mps.is_available() else
+                'cpu'
+            )
+        else:
+            self.device = device
 
-        self.conv1 = torch.nn.Conv2d(
-            in_channels=1,
-            out_channels=32,
-            kernel_size=(3, 3),
-            padding='same'
-        )
-        self.act1 = torch.nn.ReLU()
-        self.pool1 = torch.nn.MaxPool2d(kernel_size=(2, 2))
+        self.model = self.CNN(
+            input_channels,
+            output_classes
+        ).to(self.device)
 
-        self.conv2 = torch.nn.Conv2d(
-            in_channels=32,
-            out_channels=64,
-            kernel_size=(3, 3),
-            padding='same'
-        )
-        self.act2 = torch.nn.ReLU()
-        self.pool2 = torch.nn.MaxPool2d(kernel_size=(2, 2))
-
-        self.conv3 = torch.nn.Conv2d(
-            in_channels=64,
-            out_channels=128,
-            kernel_size=(7, 7),
-            padding='valid'
-        )
-        self.act3 = torch.nn.ReLU()
-
-        self.flat = torch.nn.Flatten()
-        self.mlp = torch.nn.Linear(
-            in_features=128,
-            out_features=64
-        )
-        self.act4 = torch.nn.ReLU()
-
-        self.out = torch.nn.Linear(
-            in_features=64,
-            out_features=26
-        )
-
+        self.optimizer: torch.optim.Adam | torch.optim.SGD
         if optimizer == 'adam':
-            self.optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(),
+                lr=0.0001,
+            )
         elif optimizer == 'sgd':
-            self.optimizer = torch.optim.SGD(self.parameters(), lr=0.001)
+            self.optimizer = torch.optim.SGD(
+                self.model.parameters(),
+                lr=0.0001
+            )
         else:
             raise ValueError('optimizer must be adam or sgd.')
 
@@ -172,95 +263,359 @@ class Convolutional(torch.nn.Module):
         else:
             raise ValueError('loss_function must be cross_entropy.')
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
-        """
-        forward pass of the convolutional neural network.
-        """
+    def _handle_input_data(
+            self, data: torch.Tensor | np.ndarray
+    ) -> torch.Tensor:
+        # This function handles the input data.
+        return torch.Tensor(data).unsqueeze(1).to(self.device)
 
-        data = self.conv1(data)
-        data = self.act1(data)
-        data = self.pool1(data)
+    def _handle_ouput_labels(
+            self, labels: torch.Tensor | np.ndarray
+    ) -> torch.Tensor:
+        # This function handles the output labels.
+        return torch.Tensor(labels).long().to(self.device)
 
-        data = self.conv2(data)
-        data = self.act2(data)
-        data = self.pool2(data)
-
-        data = self.conv3(data)
-        data = self.act3(data)
-
-        data = self.flat(data)
-        data = self.mlp(data)
-        data = self.act4(data)
-
-        data = self.out(data)
-
-        return data
-
-    def predict(self, data: torch.Tensor) -> torch.Tensor:
+    def predict(self, data: torch.Tensor | np.ndarray) -> np.ndarray:
         """
         predict the class of the given data.
+
+        Parameters
+        ----------
+        data : torch.Tensor | np.ndarray
+            the data to predict its class.
+
+        Returns
+        -------
+        np.ndarray
+            the predicted classes.
         """
 
+        data = self._handle_input_data(data)
         with torch.no_grad():
-            return self.forward(data).argmax(dim=1)
+            return self.model.forward(data).argmax(dim=1).to('cpu').numpy()
+
+    def score(
+            self,
+            data: torch.Tensor | np.ndarray,
+            labels: torch.Tensor | np.ndarray
+    ) -> tuple[float, float]:
+        """
+        Calculate the accuracy and loss of the given data.
+
+        Parameters
+        ----------
+        data : torch.Tensor | np.ndarray
+            the data to calculate its accuracy and loss.
+        labels : torch.Tensor | np.ndarray
+            the labels of the given data.
+
+        Returns
+        -------
+        tuple[float, float]
+            the accuracy and loss of the given data.
+        """
+
+        data = self._handle_input_data(data)
+        labels = self._handle_ouput_labels(labels)
+
+        with torch.no_grad():
+            predict = self.model.forward(data)
+            loss = self.loss_function(predict, labels)
+            accuracy = (predict.argmax(dim=1) == labels).float().mean()
+
+        return (
+            round(accuracy.item(), 4),
+            round(loss.item(), 4)
+        )
 
     def fit(
             self,
             data: torch.Tensor | np.ndarray,
             labels: torch.Tensor | np.ndarray,
-            epochs: int = 10,
-            batch_size: int = 64,
-            shuffle: bool = True,
+            valid_data: torch.Tensor | np.ndarray | None = None,
+            valid_labels: torch.Tensor | np.ndarray | None = None,
+            epochs: int = 4,
+            batch_size: int = 32,
             print_loss: bool = True
     ) -> 'Convolutional':
         """
-        fit the convolutional neural network to the given data.
+        Fit the convolutional neural network to the given data.
+
+        Parameters
+        ----------
+        data : torch.Tensor | np.ndarray
+            the data to fit the model.
+        labels : torch.Tensor | np.ndarray
+            the labels of the given data.
+        valid_data : torch.Tensor | np.ndarray | None
+            the validation data.
+        valid_labels : torch.Tensor | np.ndarray | None
+            the labels of the validation data.
+        epochs : int
+            number of epochs to train the model.
+        batch_size : int
+            batch size for training the model.
+        print_loss : bool
+            print the loss of the model.
+
+        Returns
+        -------
+        Convolutional
+            the fitted model.
         """
 
-        data = torch.Tensor(data).unsqueeze(1)
-        labels = torch.Tensor(labels).long()
-
         data_loader = torch.utils.data.DataLoader(
-            dataset=torch.utils.data.TensorDataset(data, labels),
-            batch_size=batch_size,
-            shuffle=shuffle
+            dataset=torch.utils.data.TensorDataset(
+                self._handle_input_data(data),
+                self._handle_ouput_labels(labels)
+            ),
+            batch_size=batch_size
         )
 
         for epoch in range(epochs):
-            for batch, (data, labels) in enumerate(data_loader):
+            for _, (data_x, data_y) in enumerate(data_loader):
 
                 self.optimizer.zero_grad()
 
-                predict = self(data)
-                loss = self.loss_function(predict, labels)
+                predict = self.model.forward(data_x)
+                loss = self.loss_function(predict, data_y)
 
                 loss.backward()
                 self.optimizer.step()
 
-                if print_loss and batch % 100 == 0:
-                    print(
-                        f'Epoch: {epoch}, Batch: {batch}, Loss: {loss.item()}'
-                    )
+            if print_loss:
+                print(
+                    f'Epoch: {epoch + 1}, Training accuracy and loss: '
+                    f'{self.score(data, labels)}'
+                )
+            if valid_data is not None and valid_labels is not None:
+                print(
+                    f'Epoch: {epoch + 1}, Validation accuracy and loss: '
+                    f'{self.score(valid_data, valid_labels)}'
+                )
 
         return self
 
+    class CNN(torch.nn.Module):
+        """
+        torch CNN module.
+        """
 
-def main():
+        def __init__(
+                self,
+                input_channels: int,
+                output_classes: int,
+        ):
+            """
+            Initialize the convolutional neural network.
+
+            Parameters
+            ----------
+            input_channels : int
+                number of input channels.
+            output_classes : int
+                number of output classes.
+            """
+
+            super().__init__()
+
+            self.conv1 = torch.nn.Sequential(
+                torch.nn.Conv2d(
+                    in_channels=input_channels,
+                    out_channels=20,
+                    kernel_size=(3, 3),
+                    padding='same'
+                ),
+                torch.nn.ReLU(),
+                torch.nn.MaxPool2d(kernel_size=(2, 2)),
+                torch.nn.Dropout(0.05)
+            )
+            self.conv2 = torch.nn.Sequential(
+                torch.nn.Conv2d(
+                    in_channels=20,
+                    out_channels=32,
+                    kernel_size=(3, 3),
+                    padding='same'
+                ),
+                torch.nn.ReLU(),
+                torch.nn.MaxPool2d(kernel_size=(2, 2)),
+                torch.nn.Dropout(0.1)
+            )
+            self.conv3 = torch.nn.Sequential(
+                torch.nn.Conv2d(
+                    in_channels=32,
+                    out_channels=20,
+                    kernel_size=(2, 2),
+                    padding='valid'
+                ),
+                torch.nn.ReLU(),
+                torch.nn.MaxPool2d(kernel_size=(2, 2)),
+                torch.nn.Dropout(0.05)
+            )
+            self.linear = torch.nn.Sequential(
+                torch.nn.Flatten(),
+                torch.nn.Linear(
+                    in_features=180,
+                    out_features=output_classes
+                )
+            )
+
+        def forward(self, data: torch.Tensor) -> torch.Tensor:
+            """
+            Forward pass of the convolutional neural network.
+
+            Parameters
+            ----------
+            data : torch.Tensor
+                the input data.
+
+            Returns
+            -------
+            torch.Tensor
+                the output of the model.
+            """
+
+            data = self.conv1(data)
+            data = self.conv2(data)
+            data = self.conv3(data)
+
+            data = self.linear(data)
+            return data
+
+
+def main(args: argparse.Namespace):
     """
     Main function.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        the arguments of the program.
     """
 
-    train_data, train_labels = read_sing_mnist_train()
-    model = Convolutional().fit(train_data, train_labels)
+    print(
+        "Program is running and reading the data with"
+        f"{args.without_augment * 'out'} augmentation."
+    )
 
-    test_data_a, test_data_b = read_sing_mnist_test()
-    predict_a = model.predict(torch.Tensor(test_data_a).unsqueeze(1))
-    predict_b = model.predict(torch.Tensor(test_data_b).unsqueeze(1))
+    if args.valid_data is None:
+        train_data, train_labels, valid_data, valid_labels =\
+            read_sign_mnist_train(
+                args.train_data,
+                args.shuffle,
+                args.valid_split,
+                not args.without_augment
+            )
+    else:
+        valid_data, valid_labels, _, _ = read_sign_mnist_train(
+            args.valid_data,
+            args.shuffle,
+            0
+        )
+        train_data, train_labels, _, _ = read_sign_mnist_train(
+            args.train_data,
+            args.shuffle,
+            0,
+            not args.without_augment
+        )
 
-    ascii_task_output(predict_a, predict_b)
+    if args.device == 'mps' and not torch.backends.mps.is_available():
+        raise ValueError('mps is not available on this machine.')
+    if args.device == 'cuda' and not torch.cuda.is_available():
+        raise ValueError('cuda is not available on this machine.')
+
+    if args.print_loss and args.device == 'auto':
+        device = (
+            'cuda' if torch.cuda.is_available() else
+            'mps' if torch.backends.mps.is_available() else
+            'cpu'
+        )
+        print(f"Program is running on {device}.")
+
+    model = Convolutional(
+        device=args.device,
+        optimizer=args.optimizer
+    ).fit(
+        train_data, train_labels,
+        valid_data, valid_labels,
+        args.epochs, args.batch_size,
+        args.print_loss
+    )
+
+    print(
+        "Program is predicting the test data, writing results "
+        f"'to {args.output}'."
+    )
+
+    test_data_a, test_data_b = read_sign_mnist_test(args.test_data)
+    predict_a = model.predict(torch.Tensor(test_data_a))
+    predict_b = model.predict(torch.Tensor(test_data_b))
+
+    ascii_task_output(predict_a, predict_b, args.output)
     exit(0)
 
 
 if __name__ == '__main__':
+    # Parse the arguments and call the main function.
 
-    main()
+    parser = argparse.ArgumentParser(
+        prog='Convolutional Neural Network for Sign Language',
+        description="This project developed by Amin Darabi and Seyed Armin "
+                    "Hossieni for the second data competition of the "
+                    "Introduction to Machine Learning course(IFT6390_UdeM). "
+                    "This program trains a convolutional neural network "
+                    "to classify sign language MNIST."
+                    "After training the model, it predicts the test data and "
+                    "performs and ascii trick to create the output file."
+    )
+
+    parser.add_argument(
+        'train_data', type=str,
+        help='path to the train data.'
+    )
+    parser.add_argument(
+        'test_data', type=str,
+        help='path to the test data.'
+    )
+    parser.add_argument(
+        '-o', '--output', type=str, default='output.csv',
+        help='path to the output file.'
+    )
+    parser.add_argument(
+        '--valid_data', type=str, default=None,
+        help='path to the validation data.'
+    )
+    parser.add_argument(
+        '-e', '--epochs', type=int, default=25,
+        help='number of epochs to train the model.'
+    )
+    parser.add_argument(
+        '--batch_size', type=int, default=32,
+        help='batch size for training the model.'
+    )
+    parser.add_argument(
+        '--shuffle', type=bool, default=True,
+        help='shuffle the training data.'
+    )
+    parser.add_argument(
+        '-p', '--print_loss', action='store_true',
+        help='print the loss of the model.'
+    )
+    parser.add_argument(
+        '--optimizer', type=str, default='adam',
+        help='optimizer for the model.'
+    )
+    parser.add_argument(
+        '--device', type=str, default='auto',
+        help='device for the model. (auto, cuda, mps, cpu)'
+    )
+    parser.add_argument(
+        '--valid_split', type=float, default=0,
+        help='split the train data into train and validation data(0 for None).'
+    )
+    parser.add_argument(
+        '--without_augment', action='store_true',
+        help='do not augment the train data.'
+    )
+
+    main(parser.parse_args())
