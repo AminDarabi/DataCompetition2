@@ -6,4 +6,6 @@ output/*
 output.csv
 results/*
 result/*
+*.png
+*.txt
 __pycache__/*
