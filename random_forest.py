@@ -9,9 +9,11 @@ Applying on the Sign Language Dataset.
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
+import os
 import matplotlib.pyplot as plt
-# from randomfores_class.randomforest import RandomForestClassifier
-from sklearn.ensemble import RandomForestClassifier
+from randomfores_class.randomforest import RandomForestClassifier
+# from sklearn.ensemble import RandomForestClassifier
 
 
 def filter_images(images: np.ndarray, filter_size: np.float32 = 4) -> np.ndarray:
@@ -186,29 +188,34 @@ if __name__ == "__main__":
                                     images.shape[2] - kernel_height + 1))
     test_image_with_kernel = np.ndarray((test_images.shape[0], len(Kernels), test_images.shape[1] - kernel_height + 1,
                                          test_images.shape[2] - kernel_height + 1))
-    for i, kernel in enumerate(Kernels):
+    for i, kernel in tqdm(enumerate(Kernels), total=len(Kernels)):
         image_with_kernel[:, i, :, :] = convolve(images, Kernels[kernel])
         test_image_with_kernel[:, i, :, :] = convolve(test_images, Kernels[kernel])
+
+    max_pool_image = np.ndarray((images.shape[0], len(Kernels), 6, 6))
+    test_max_pool_image = np.ndarray((test_images.shape[0], len(Kernels), 6, 6))
+    for i in range(6):
+        for j in range(6):
+            max_pool_image[:,:,i,j] = np.max(image_with_kernel[:, :, i*4:i*4+6, j*4:j*4+6], axis=(2, 3))
+            test_max_pool_image[:,:,i,j] = np.max(test_image_with_kernel[:, :, i*4:i*4+6, j*4:j*4+6], axis=(2, 3))
+
     image_with_kernel = image_with_kernel.reshape(image_with_kernel.shape[0], -1)
     test_image_with_kernel = test_image_with_kernel.reshape(test_image_with_kernel.shape[0], -1)
-    tree_counts = range(10, 100, 10)
-    train_accuracies = []
-    test_accuracies = []
-    for tree_count in tree_counts:
-        print(tree_count)
-        rf = RandomForestClassifier(n_estimators=tree_count, max_depth=5)
-        rf.fit(image_with_kernel, labels)
-        predict = rf.predict(test_image_with_kernel)
-        accuracy = (predict == test_labels).mean()
-        train_predict = rf.predict(image_with_kernel)
-        train_accuracy = (train_predict == labels).mean()
-        train_accuracies.append(train_accuracy)
-        test_accuracies.append(accuracy)
+    tree_counts = [30, 50, 100, 200, 300]
+    depths = [10, 20, 30, 50]
+    df = pd.DataFrame(columns=['tree_count', 'depth', 'train_accuracy', 'test_accuracy'])
+    print()
 
-    plt.plot(tree_counts, train_accuracies, label='Train Accuracy')
-    plt.plot(tree_counts, test_accuracies, label='Test Accuracy')
-    plt.xlabel('Number of Trees')
-    plt.ylabel('Accuracy')
-    plt.title('Train and Test Accuracy vs Number of Trees')
-    plt.legend()
-    plt.show()    
+    # for tree_count in tree_counts:
+    #     for depth in depths:
+    rf = RandomForestClassifier(n_estimators=50, max_depth=20)
+    rf.fit(image_with_kernel, labels)
+    train_predict = rf.predict(image_with_kernel)
+    train_accuracy = (train_predict == labels).mean()
+    test_predict = rf.predict(test_image_with_kernel)
+    test_accuracy = (test_predict == test_labels).mean()
+    df = pd.concat([df, pd.DataFrame([{'tree_count': 50, 'depth': 20, 'train_accuracy': train_accuracy,
+                    'test_accuracy': test_accuracy}])], ignore_index=True)
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(df)
+
