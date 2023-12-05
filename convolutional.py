@@ -51,26 +51,6 @@ def read_sign_mnist_train(
         df.drop('label', axis=1).values.reshape(-1, 28, 28)
     ).astype(np.float32)
 
-    if augment:
-
-        # Add rotated images
-        rotated_images = np.array(
-            [ndimage.rotate(
-                img, np.random.randint(-20, 21), reshape=False
-            ) for img in images]
-        )
-
-        # Add shifted images
-        shifted_images = np.array(
-            [
-                ndimage.shift(img, np.random.randint(-3, 4, [2]))
-                for img in images
-            ]
-        )
-
-        labels = np.concatenate([labels, labels, labels])
-        images = np.concatenate([images, rotated_images, shifted_images])
-
     if shuffle:
         indices = np.arange(0, len(labels))
         np.random.shuffle(indices)
@@ -78,14 +58,51 @@ def read_sign_mnist_train(
         labels = labels[indices]
         images = images[indices]
 
-    if valid_split == 0:
-        return images, labels, None, None
+    if valid_split != 0:
 
-    split_index = int(len(labels) * valid_split)
+        split_index = int(len(labels) * valid_split)
+
+        train_images = images[split_index:]
+        train_labels = labels[split_index:]
+        valid_images = images[:split_index]
+        valid_labels = labels[:split_index]
+
+    else:
+
+        train_images = images
+        train_labels = labels
+        valid_images = None
+        valid_labels = None
+
+    if augment:
+
+        # Add rotated images
+        rotated_images = np.array(
+            [ndimage.rotate(
+                img, np.random.randint(-20, 21), reshape=False
+            ) for img in train_images]
+        )
+
+        # Add shifted images
+        shifted_images = np.array(
+            [
+                ndimage.shift(img, np.random.randint(-3, 4, [2]))
+                for img in train_images
+            ]
+        )
+
+        train_labels = np.concatenate(
+            [train_labels, train_labels, train_labels]
+        )
+        train_images = np.concatenate(
+            [train_images, rotated_images, shifted_images]
+        )
 
     return (
-        images[split_index:], labels[split_index:],
-        images[:split_index], labels[:split_index]
+        train_images,
+        train_labels,
+        valid_images,
+        valid_labels
     )
 
 
@@ -524,7 +541,7 @@ def main(args: argparse.Namespace):
     if args.device == 'cuda' and not torch.cuda.is_available():
         raise ValueError('cuda is not available on this machine.')
 
-    if args.print_loss and args.device == 'auto':
+    if args.print_loss or args.device == 'auto':
         device = (
             'cuda' if torch.cuda.is_available() else
             'mps' if torch.backends.mps.is_available() else
