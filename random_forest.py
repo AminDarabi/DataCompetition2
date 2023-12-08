@@ -829,7 +829,7 @@ if __name__ == '__main__':
         help='path to the validation data.'
     )
     parser.add_argument(
-        '-n', '--nestimators', type=int, default=100,
+        '-n', '--nestimators', type=int, default=300,
         help='number of estimators for the model.'
     )
     parser.add_argument(
