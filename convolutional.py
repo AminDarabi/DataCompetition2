@@ -177,7 +177,7 @@ def ascii_task_output(
     return df
 
 
-class Convolutional():
+class Convolutional:
     """
     Simple convolutional neural network for sign language classification.
 

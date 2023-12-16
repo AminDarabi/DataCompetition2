@@ -783,11 +783,12 @@ def main(args: argparse.Namespace):
     )
 
     test_data_a, test_data_b = read_sign_mnist_test(args.test_data)
-    test_data_a = pre_process(test_data_a)
-    test_data_b = pre_process(test_data_b)
-
-    predict_a = model.predict(test_data_a)
-    predict_b = model.predict(test_data_b)
+    predict_a = model.predict(
+        pre_process(test_data_a)
+    )
+    predict_b = model.predict(
+        pre_process(test_data_b)
+    )
 
     ascii_task_output(predict_a, predict_b, args.output)
     exit(0)

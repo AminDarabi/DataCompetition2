@@ -12,8 +12,6 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler
 
 
 def read_sign_mnist_train(
@@ -276,20 +274,12 @@ def main(args: argparse.Namespace):
 
     print("Program is training the model.")
 
-    model = Pipeline(
-        [
-            ('scaler', MinMaxScaler()),
-            (
-                'classifier',
-                AdaBoostClassifier(
-                    estimator=DecisionTreeClassifier(
-                        max_depth=args.tree_depth
-                    ),
-                    n_estimators=args.nestimators,
-                    learning_rate=args.learning_rate
-                )
-            )
-        ]
+    model = AdaBoostClassifier(
+        estimator=DecisionTreeClassifier(
+            max_depth=args.tree_depth
+        ),
+        n_estimators=args.nestimators,
+        learning_rate=args.learning_rate
     ).fit(
         train_data,
         train_labels
@@ -327,12 +317,12 @@ if __name__ == '__main__':
     # Parse the arguments and call the main function.
 
     parser = argparse.ArgumentParser(
-        prog='Convolutional Neural Network for Sign Language',
+        prog='AdaBoost Classifier using Decision Trees for Sign Language ',
         description="This project developed by Amin Darabi and Seyed Armin "
                     "Hossieni for the second data competition of the "
                     "Introduction to Machine Learning course(IFT6390_UdeM). "
-                    "This program trains a convolutional neural network "
-                    "to classify sign language MNIST."
+                    "This program trains a AdaBoost Classifier using Decision "
+                    "Trees to classify the sign language images. "
                     "After training the model, it predicts the test data and "
                     "performs and ascii trick to create the output file."
     )
